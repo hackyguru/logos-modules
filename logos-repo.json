@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "name": "hackyguru-modules",
   "displayName": "Guru's Logos Modules",
-  "description": "Logos Basecamp modules by Guru (hackyguru) — Persona (private LEZ wallet + Bedrock base-chain node), with more on the way.",
+  "description": "Logos Basecamp modules by Guru (hackyguru) — Persona (private LEZ wallet + Bedrock base-chain node) and Chorus (serverless voice rooms), with more on the way.",
   "homepage": "https://modules.hackyguru.com",
   "indexUrl": "https://github.com/hackyguru/logos-modules/releases/download/index/index.json",
   "trustedSigners": [
