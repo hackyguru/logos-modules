@@ -56,16 +56,39 @@ def platforms(manifest: dict) -> list:
     return plats or sorted(manifest.get("main", {}).keys())
 
 
-def find_icon(icon_name: str):
+def source_icon(module_name: str):
+    """The icon a module's own metadata.json names, resolved in its source.
+
+    Newer module-builder releases rewrite the manifest's `icon` to a
+    generated `assets/icon.png` that exists only inside the .lgx, so the
+    manifest name alone no longer finds the file in the checkout."""
+    if not module_name:
+        return None
+    for meta in glob.glob("submodules/**/metadata.json", recursive=True):
+        try:
+            m = json.load(open(meta))
+        except (OSError, ValueError):
+            continue
+        if m.get("name") == module_name and m.get("icon"):
+            p = os.path.join(os.path.dirname(meta), m["icon"])
+            if os.path.isfile(p):
+                return p
+    return None
+
+
+def find_icon(icon_name: str, module_name: str = ""):
     """Base64 data-URI for a module icon.
 
-    Searched in the checked-out submodules first, then in site/icons/ —
-    externally published modules (external-modules.txt) have no submodule
-    here, so their icon is vendored under site/icons/ instead."""
+    The module's own metadata.json is tried first, then the manifest's icon
+    name in the checked-out submodules, then site/icons/ — externally
+    published modules (external-modules.txt) have no submodule here, so
+    their icon is vendored under site/icons/ instead."""
     if not icon_name:
         return None
     base = os.path.basename(icon_name)
-    candidates = glob.glob(f"submodules/**/{base}", recursive=True) \
+    exact = source_icon(module_name)
+    candidates = ([exact] if exact else []) \
+        + glob.glob(f"submodules/**/{base}", recursive=True) \
         + glob.glob(f"site/icons/{base}")
     for p in candidates:
         try:
@@ -139,7 +162,7 @@ def render_app(members: list) -> str:
     deps = sorted({d for m in manifests for d in m.get("dependencies", []) if d not in own})
     plats = sorted({p for m in manifests for p in platforms(m)})
     signed = all(v.get("signature") for v in vers)
-    icon = next((find_icon(m.get("icon")) for m in manifests if m.get("icon")), None)
+    icon = next((i for i in (find_icon(m.get("icon"), m.get("name", "")) for m in manifests if m.get("icon")) if i), None)
 
     icon_html = (
         f'<img class="icon" src="{icon}" alt="">' if icon
