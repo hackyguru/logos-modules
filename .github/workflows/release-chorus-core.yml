@@ -1,0 +1,25 @@
+name: Release chorus-core
+
+# Manually-triggered release for the chorus_core module, which lives in the
+# chorus monorepo submodule at submodules/chorus/core. Delegates to the
+# shared _release-module.yml (signing config lives there). The forked
+# release-action resolves the containing submodule from this subdir path.
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: "Force build — replace the current published release if it has the same version."
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    uses: ./.github/workflows/_release-module.yml
+    with:
+      module_path: submodules/chorus/core
+      force_build: ${{ inputs.force_build }}
+    secrets: inherit

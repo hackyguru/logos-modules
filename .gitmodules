@@ -19,3 +19,6 @@
 [submodule "submodules/persona"]
 	path = submodules/persona
 	url = https://github.com/hackyguru/persona
+[submodule "submodules/chorus"]
+	path = submodules/chorus
+	url = https://github.com/hackyguru/chorus
