@@ -22,3 +22,9 @@
 [submodule "submodules/chorus"]
 	path = submodules/chorus
 	url = https://github.com/hackyguru/chorus
+[submodule "submodules/lez-counter"]
+	path = submodules/lez-counter
+	url = https://github.com/hackyguru/lez-counter
+[submodule "submodules/lez-guestbook"]
+	path = submodules/lez-guestbook
+	url = https://github.com/hackyguru/lez-guestbook
