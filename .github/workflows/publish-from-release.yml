@@ -116,5 +116,20 @@ jobs:
               --title "${MODULE} v${{ steps.pkg.outputs.ver }}" --notes "$notes"
           fi
 
-      - name: Rebuild index
-        run: gh workflow run rebuild-index.yml -R "${GITHUB_REPOSITORY}"
+      # A rebuild started with GITHUB_TOKEN doesn't fire workflow_run, so
+      # "Augment index" wouldn't follow it and the external modules would
+      # drop out of index.json. Wait for the rebuild and augment explicitly.
+      - name: Rebuild index, then augment
+        run: |
+          set -euo pipefail
+          since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          gh workflow run rebuild-index.yml -R "${GITHUB_REPOSITORY}"
+          for _ in $(seq 1 30); do
+            id=$(gh run list -R "${GITHUB_REPOSITORY}" -w rebuild-index.yml -L 5 \
+                   --json databaseId,createdAt --jq "[.[] | select(.createdAt >= \"$since\")][0].databaseId // empty")
+            [[ -n "$id" ]] && break
+            sleep 5
+          done
+          [[ -n "${id:-}" ]] || { echo "::error::rebuild-index run not found"; exit 1; }
+          gh run watch "$id" -R "${GITHUB_REPOSITORY}" --exit-status || true
+          gh workflow run augment-index.yml -R "${GITHUB_REPOSITORY}"
