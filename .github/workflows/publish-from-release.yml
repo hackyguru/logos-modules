@@ -1,0 +1,120 @@
+name: Publish module from an existing release
+
+# Publishes a module whose per-variant .lgx files are already attached to a
+# release in its own repo (e.g. hackyguru/logos-fieldpay v0.1.0), instead of
+# rebuilding it. Same steps as the release action's release job — merge the
+# variants, sign with LOGOS_SIGNING_KEY, write sidecar.json, publish as
+# `<module>-v<version>`, rebuild the index — minus the build.
+#
+# Source assets must be named `<module>-<variant>.lgx`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_repo:
+        description: "Repo holding the release, e.g. hackyguru/logos-fieldpay"
+        required: true
+      source_tag:
+        description: "Release tag in that repo, e.g. v0.1.0"
+        required: true
+      module:
+        description: "Module name, e.g. fieldstore_core"
+        required: true
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MODULE: ${{ inputs.module }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+        with:
+          extra-conf: |
+            experimental-features = nix-command flakes
+
+      - name: Set up lgx CLI
+        run: |
+          set -euo pipefail
+          nix build github:logos-co/logos-package#lgx --out-link "$RUNNER_TEMP/lgx-tool"
+          echo "$RUNNER_TEMP/lgx-tool/bin" >> "$GITHUB_PATH"
+
+      - name: Download variants
+        run: |
+          set -euo pipefail
+          mkdir -p _per-variant
+          gh release download "${{ inputs.source_tag }}" -R "${{ inputs.source_repo }}" \
+            -p "${MODULE}-*.lgx" -D _per-variant
+          ls -la _per-variant
+
+      - name: Merge, sign, write sidecar
+        id: pkg
+        env:
+          SIGNING_KEY: ${{ secrets.LOGOS_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          mapfile -t variants < <(find _per-variant -name '*.lgx' | sort)
+          [[ ${#variants[@]} -gt 0 ]] || { echo "::error::no ${MODULE}-*.lgx in the release"; exit 1; }
+          ver=$(lgx manifest "${variants[0]}" --json | jq -r .version)
+          out="$GITHUB_WORKSPACE/${MODULE}-${ver}.lgx"
+          if [[ ${#variants[@]} -eq 1 ]]; then cp "${variants[0]}" "$out"; else lgx merge "${variants[@]}" -o "$out" -y; fi
+          lgx verify "$out"
+
+          tmpd=$(mktemp -d)
+          printf '%s' "$SIGNING_KEY" > "$tmpd/release.jwk"
+          chmod 600 "$tmpd/release.jwk"
+          lgx sign "$out" --key release --keys-dir "$tmpd"
+          lgx verify "$out"
+
+          manifest=$(lgx manifest "$out" --json)
+          [[ "$(jq -r .name <<<"$manifest")" == "$MODULE" ]] || { echo "::error::manifest name mismatch"; exit 1; }
+          built=$(for f in "${variants[@]}"; do b=$(basename "$f" .lgx); echo "${b#"${MODULE}-"}"; done | jq -R . | jq -sc .)
+          sig=$(tar -O -xzf "$out" manifest.sig 2>/dev/null || true)
+          jq -n \
+             --arg releaseTag "${MODULE}-v${ver}" \
+             --arg releasedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+             --arg sha "$(sha256sum "$out" | awk '{print $1}')" \
+             --argjson size "$(stat -c%s "$out")" \
+             --arg rootHash "$(jq -r '.hashes.root // ""' <<<"$manifest")" \
+             --argjson manifest "$manifest" \
+             --arg signature "$sig" \
+             --argjson builtVariants "$built" \
+             '{
+                publisherRef:    $releaseTag,
+                releasedAt:      $releasedAt,
+                sha256:          $sha,
+                size:            $size,
+                rootHash:        $rootHash,
+                builtVariants:   $builtVariants,
+                missingVariants: [],
+                manifest:        $manifest
+              } + (if ($signature | length) > 0
+                   then { signature: ($signature | fromjson) }
+                   else {} end)' > sidecar.json
+          echo "tag=${MODULE}-v${ver}" >> "$GITHUB_OUTPUT"
+          echo "ver=${ver}" >> "$GITHUB_OUTPUT"
+          echo "lgx=$out" >> "$GITHUB_OUTPUT"
+          echo "built=$(jq -r 'join(", ")' <<<"$built")" >> "$GITHUB_OUTPUT"
+
+      - name: Create / update GitHub release
+        run: |
+          set -euo pipefail
+          tag="${{ steps.pkg.outputs.tag }}"
+          notes="Built variants: ${{ steps.pkg.outputs.built }}
+
+          From ${{ inputs.source_repo }} ${{ inputs.source_tag }}."
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "${{ steps.pkg.outputs.lgx }}" sidecar.json --clobber
+          else
+            gh release create "$tag" "${{ steps.pkg.outputs.lgx }}" sidecar.json \
+              --title "${MODULE} v${{ steps.pkg.outputs.ver }}" --notes "$notes"
+          fi
+
+      - name: Rebuild index
+        run: gh workflow run rebuild-index.yml -R "${GITHUB_REPOSITORY}"
