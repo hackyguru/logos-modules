@@ -31,3 +31,6 @@
 [submodule "submodules/beacon"]
 	path = submodules/beacon
 	url = https://github.com/hackyguru/beacon
+[submodule "submodules/logos-fieldpay"]
+	path = submodules/logos-fieldpay
+	url = https://github.com/hackyguru/logos-fieldpay
