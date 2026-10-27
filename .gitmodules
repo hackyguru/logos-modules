@@ -28,3 +28,6 @@
 [submodule "submodules/lez-guestbook"]
 	path = submodules/lez-guestbook
 	url = https://github.com/hackyguru/lez-guestbook
+[submodule "submodules/beacon"]
+	path = submodules/beacon
+	url = https://github.com/hackyguru/beacon
